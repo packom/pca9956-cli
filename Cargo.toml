@@ -1,0 +1,25 @@
+[package]
+name = "pca9956b-cli"
+version = "0.1.0"
+authors = ["Piers Finlayson <piers@packom.net>"]
+license = "GPL-3.0-or-later"
+edition = "2018"
+repository = "https://github.com/packom/pca9956b-cli"
+documentation = "https://github.com/packom/pca9956b-cli"
+homepage = "https://github.com/packom/pca9956b-cli"
+description = "CLI to control PCA9956B devices"
+readme = "README.md"
+keywords = ["i2c","bus","openapi","pca9956b","http"]
+categories = ["api-bindings","hardware-support","network-programming","embedded","web-programming"]
+
+[badges]
+maintenance = { status = "actively-developed" }
+travis-ci = { repository = "packom/pca9956b-cli", branch = "master" }
+
+[dependencies]
+pca9956b-api = "0.1.1"
+tokio-core = "0.1.6"
+clap = "2.33"
+swagger = "1.0.1"
+uuid = {version = "0.5", features = ["serde", "v4"]}
+

@@ -1,2 +1,2 @@
-# pca9956-cli
-CLI to control PCA9956 devices
+# pca9956b-cli
+CLI to control PCA9956B devices
