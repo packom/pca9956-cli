@@ -22,6 +22,9 @@ tokio-core = "0.1.6"
 clap = "2.33"
 swagger = "1.0.1"
 uuid = {version = "0.5", features = ["serde", "v4"]}
-hyper = {version = "0.11"}
-
+hyper = "0.11"
+log = "0.4.6"
+env_logger = "0.6.1"
+ncurses = "5.99.0"
+signal-hook = "0.1.9"
 

@@ -3,8 +3,9 @@ use tokio_core::{reactor, reactor::Core};
 use clap::{App, Arg};
 use swagger::{make_context,make_context_ty};
 use swagger::{ContextBuilder, EmptyContext, XSpanIdString, Push, AuthData};
-use uuid;
-use hyper;
+use ncurses::{initscr, refresh, getch, endwin, printw};
+use log::{debug, warn};
+use signal_hook::{register, SIGINT, SIGTERM};
 
 struct Config {
     https: bool,
@@ -17,14 +18,60 @@ struct Config {
 type ClientContext = make_context_ty!(ContextBuilder, EmptyContext, Option<AuthData>, XSpanIdString);
 type Client<'a> = swagger::context::ContextWrapper<'a, pca9956b_api::client::Client<hyper::client::FutureResponse>, ClientContext>;
 
+static QUIT: i32 = 0;
+
 fn main() {
+    initscr();
+    env_logger::init();
+    reg_for_sigs();
+
     let conf = get_args();
     dump_args(&conf);
     let mut core = reactor::Core::new().unwrap();
     let client = create_client(&conf, &core);
-    let client = client.with_context(make_context!(ContextBuilder, EmptyContext, None as Option<AuthData>, XSpanIdString(self::uuid::Uuid::new_v4().to_string())));
+    let client = client.with_context(make_context!(ContextBuilder, EmptyContext, None as Option<AuthData>, XSpanIdString(uuid::Uuid::new_v4().to_string())));
 
-    run(&conf, &mut core, &client)
+    run(&conf, &mut core, &client);
+
+    endwin();
+}
+
+macro_rules! reg_sig {
+    ($sig: expr, $fn: tt) => {
+        unsafe { register($sig, || $fn()) }
+            .and_then(|_| {
+                debug!("Registered for {}", stringify!($sig));
+                Ok(())
+            })
+            .or_else(|e| {
+                warn!("Failed to register for {} {:?}", stringify!($sig), e);
+                Err(e)
+            })
+            .ok();
+    }
+}
+
+macro_rules! handle_sig {
+    ($sig: expr) => {
+        {
+            endwin();
+            warn!("{} caught - exiting", stringify!($sig));
+            std::process::exit(128 + $sig);
+        }
+    }
+}
+
+fn reg_for_sigs() {
+    reg_sig!(SIGINT, on_sigint);
+    reg_sig!(SIGTERM, on_sigterm);
+}
+
+fn on_sigint() {
+    handle_sig!(SIGINT);
+}
+
+fn on_sigterm() {
+    handle_sig!(SIGTERM);
 }
 
 fn get_args() -> Config {
@@ -64,12 +111,12 @@ fn get_args() -> Config {
 }
 
 fn dump_args(conf: &Config) {
-  println!("Args");
-  println!("  https: {}", conf.https);
-  println!("  host:  {}", conf.host);
-  println!("  port:  {}", conf.port);
-  println!("  bus:   {}", conf.bus);
-  println!("  addr:  {}", conf.addr);
+  printw("Args\n");
+  printw(&format!("  https: {}\n", conf.https));
+  printw(&format!("  host:  {}\n", conf.host));
+  printw(&format!("  port:  {}\n", conf.port));
+  printw(&format!("  bus:   {}\n", conf.bus));
+  printw(&format!("  addr:  {}\n", conf.addr));
 }
 
 fn create_client<'a>(conf: &Config, core: &Core) -> pca9956b_api::client::Client<hyper::client::FutureResponse> {
@@ -87,24 +134,35 @@ fn create_client<'a>(conf: &Config, core: &Core) -> pca9956b_api::client::Client
 }
 
 fn run(conf: &Config, mut core: &mut Core, client: &Client) {
-    // Sequence is:
-    // - Get current device state
-    // - Output that state
-    // - Wait for an action from the user
-    // - Apply that action, outputting result
-    // - Start again from the top
-    get_api(&mut core, &client);
-    get_info(&conf, &mut core, &client);
+    loop {
+        let _info = get_info(&conf, &mut core, &client);
+        //output_state(info);
+        refresh();
+        let ch = get_char();
+        process_input(ch);
+    }
 }
 
-fn get_api(core: &mut Core, client: &Client) {
-    let result = core.run(client.get_api());
-    println!("get_api ...");
-    println!("{:?}", result);
+fn get_char() -> i32 {
+    let ch = getch();
+    printw(&format!("{} {}", 8u8 as char, 8u8 as char));
+    ch
 }
 
-fn get_info(conf: &Config, core: &mut Core, client: &Client) {
+fn get_info(conf: &Config, core: &mut Core, client: &Client) -> () {
     let result = core.run(client.get_led_info_all(conf.bus, conf.addr));
-    println!("get_info ...");
-    println!("{:?}", result);
+    printw("get_info ... ");
+    printw(&format!("{:?}\n", result));
 }
+
+const CMD_Q: i32 = 'q' as i32;
+const CMD_X: i32 = 'x' as i32;
+
+fn process_input(ch: i32) {
+    match ch {
+        CMD_Q => handle_sig!(QUIT),
+        CMD_X => handle_sig!(QUIT),
+        _ => (),
+    }
+}
+
