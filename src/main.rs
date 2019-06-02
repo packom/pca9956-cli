@@ -1,4 +1,5 @@
-use pca9956b_api::{ApiNoContext, ContextWrapperExt};
+use pca9956b_api::{ApiNoContext, ContextWrapperExt, GetLedInfoAllResponse};
+use pca9956b_api::models::{LedInfo, OpError};
 use tokio_core::{reactor, reactor::Core};
 use clap::{App, Arg};
 use swagger::{make_context,make_context_ty};
@@ -19,6 +20,7 @@ type ClientContext = make_context_ty!(ContextBuilder, EmptyContext, Option<AuthD
 type Client<'a> = swagger::context::ContextWrapper<'a, pca9956b_api::client::Client<hyper::client::FutureResponse>, ClientContext>;
 
 static QUIT: i32 = 0;
+static ABORT: i32 = 1;
 
 fn main() {
     initscr();
@@ -58,6 +60,15 @@ macro_rules! handle_sig {
             warn!("{} caught - exiting", stringify!($sig));
             std::process::exit(128 + $sig);
         }
+    }
+}
+
+
+fn exit(sig: i32, err: String) {
+    {
+        endwin();
+        warn!("Exiting due to {}", err);
+        std::process::exit(128 + sig);
     }
 }
 
@@ -135,11 +146,9 @@ fn create_client<'a>(conf: &Config, core: &Core) -> pca9956b_api::client::Client
 
 fn run(conf: &Config, mut core: &mut Core, client: &Client) {
     loop {
-        let _info = get_info(&conf, &mut core, &client);
-        //output_state(info);
+        handle_info(get_info(&conf, &mut core, &client));
         refresh();
-        let ch = get_char();
-        process_input(ch);
+        process_status(get_char());
     }
 }
 
@@ -149,19 +158,52 @@ fn get_char() -> i32 {
     ch
 }
 
-fn get_info(conf: &Config, core: &mut Core, client: &Client) -> () {
+fn get_info(conf: &Config, core: &mut Core, client: &Client) -> GetLedInfoAllResponse {
     let result = core.run(client.get_led_info_all(conf.bus, conf.addr));
-    printw("get_info ... ");
-    printw(&format!("{:?}\n", result));
+    match result {
+        Ok(x) => x,
+        _ => {
+            let err = format!("Failure to get PCA9956B info: {:?}\n", result);
+            printw(&err);
+            exit(ABORT, err);
+            GetLedInfoAllResponse::OperationFailed(OpError{error: Some("API Call Failed".to_string())})
+        },
+    }
+}
+
+fn handle_info(info: GetLedInfoAllResponse) {
+    match info {
+        GetLedInfoAllResponse::OK(info) => output_status(info),
+        _ => {
+            let err = format!("Failure to get PCA9956B info: {:?}\n", info);
+            printw(&err);
+            exit(ABORT, err);
+        },
+    }
+}
+
+fn output_status(info: Vec<LedInfo>)
+{
+    printw("Led Info ...\n");
+    for led in info {
+        printw(&format!(
+            "  {}: State: {:?} PWM: {}/255 Current {}/255 Error {:?}\n",
+            led.index.unwrap(),
+            led.state.unwrap(),
+            led.pwm.unwrap(),
+            led.current.unwrap(),
+            led.error.unwrap()
+        ));
+    }
 }
 
 const CMD_Q: i32 = 'q' as i32;
 const CMD_X: i32 = 'x' as i32;
 
-fn process_input(ch: i32) {
+fn process_status(ch: i32) {
     match ch {
-        CMD_Q => handle_sig!(QUIT),
-        CMD_X => handle_sig!(QUIT),
+        CMD_Q => exit(QUIT, "User termination".to_string()),
+        CMD_X => exit(QUIT, "User termination".to_string()),
         _ => (),
     }
 }
