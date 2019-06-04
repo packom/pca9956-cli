@@ -250,7 +250,7 @@ fn output_status(info: Vec<LedInfo>) {
 }
 
 fn output_selected() {
-    mvprintw(11, 0, "Selected:     Status:          Value:      Applies to:          Applied:     ");
+    mvprintw(11, 0, " Selected:     Status:          Value:      Applies to:          Applied:     ");
 }
 
 fn output_info(info: &str) {
