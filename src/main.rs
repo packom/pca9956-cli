@@ -1,5 +1,5 @@
 use pca9956b_api::{ApiNoContext, ContextWrapperExt, GetLedInfoAllResponse};
-use pca9956b_api::models::{LedInfo, OpError};
+use pca9956b_api::models::{LedInfo, OpError, LedState, LedError};
 use tokio_core::{reactor, reactor::Core};
 use clap::{App, Arg};
 use swagger::{make_context,make_context_ty};
@@ -146,6 +146,8 @@ fn create_client<'a>(conf: &Config, core: &Core) -> pca9956b_api::client::Client
 }
 
 fn run(conf: &Config, mut core: &mut Core, client: &Client) {
+    output_template();
+    refresh();
     loop {
         handle_info(get_info(&conf, &mut core, &client));
         refresh();
@@ -168,7 +170,11 @@ fn get_info(conf: &Config, core: &mut Core, client: &Client) -> GetLedInfoAllRes
 
 fn handle_info(info: GetLedInfoAllResponse) {
     match info {
-        GetLedInfoAllResponse::OK(info) => output_status(info),
+        GetLedInfoAllResponse::OK(info) => {
+            output_status(info);
+            output_selected();
+            output_info("Operation completed successfully");
+        },
         _ => {
             let err = format!("Failure to get PCA9956B info: {:?}\n", info);
             printw(&err);
@@ -190,12 +196,7 @@ fn print_status_chars(arr: [char; 24]) {
         for_each(|(_,_)| {printw(" ");});
 }
 
-fn output_status(info: Vec<LedInfo>)
-{
-    let status: CharStatus = ['.'; 24];
-    let errors: CharStatus = ['.'; 24];
-    // XXX Actually build status and errros
-
+fn output_template() {
     mvprintw(0, 0, LINE_DASHES);
     printw("                         --- PCA9956B Controller ---\n");
     printw(LINE_DASHES);
@@ -206,33 +207,54 @@ fn output_status(info: Vec<LedInfo>)
     printw(LINE_DASHES);
     // Status: .op+ .op+ .op+ .op+ .op+ .op+     Key: . Off  p PWM  + PWMPlus o On    
     // Errors: .sox .... .... .... .... ....     Key: . None o Open s Short   x DNE
-    printw(" Status: ");
-    print_status_chars(status);
-    printw("    Key: . Off  p PWM  + PWMPlus o On\n");
-    printw(" Errors: ");
-    print_status_chars(errors);
-    printw("    Key: . None o Open s Short   x DNE\n");
+    printw(" Status:                                   Key: . Off  p PWM  + PWMPlus o On\n");
+    printw(" Errors:                                   Key: . None o Open s Short   x DNE\n");
     printw(LINE_DASHES);
     // Selected: 23  Status: PWMPlus  Value: 255  Applies to: Current  Applied: No  
-    printw(&format!(" Selected: {}  Status: {}  Value: {}  Applied to: {}  Applied: {}\n", "", "", "", "", ""));
+    printw("\n");
     printw(LINE_DASHES);
     // ... LED 0: Current 254: Value applied    printw(LINE_DASHES);
-    printw(&format!(" ... {}\n", ""));
+    printw(&format!(" ... \n"));
     printw(LINE_DASHES);
+}
 
-/*
-    printw("Led Info ...\n");
-    for led in info {
-        printw(&format!(
-            "  {}: State: {:?} PWM: {}/255 Current {}/255 Error {:?}\n",
-            led.index.unwrap(),
-            led.state.unwrap(),
-            led.pwm.unwrap(),
-            led.current.unwrap(),
-            led.error.unwrap()
-        ));
-    }
-*/    
+fn output_status(info: Vec<LedInfo>) {
+    let mut status: CharStatus = ['.'; 24];
+    let mut errors: CharStatus = ['.'; 24];
+
+    info.iter().
+        enumerate().
+        for_each(|(ii,x)| {
+            match x.state.unwrap() {
+                LedState::FALSE => status[ii] = '.',
+                LedState::TRUE => status[ii] = 'o',
+                LedState::PWM => status[ii] = 'p',
+                LedState::PWMPLUS => status[ii] = 'o',
+            };
+            match x.error.unwrap() {
+                LedError::NONE => errors[ii] = '.',
+                LedError::SHORT => errors[ii] = 's',
+                LedError::OPEN => errors[ii] = 'o',
+                LedError::DNE => errors[ii] = 'x',
+            };
+        });
+
+    // Status: .op+ .op+ .op+ .op+ .op+ .op+     Key: . Off  p PWM  + PWMPlus o On    
+    // Errors: .sox .... .... .... .... ....     Key: . None o Open s Short   x DNE
+    mvprintw(8, 0, " Status: ");
+    print_status_chars(status);
+    printw("    Key: . Off  p PWM  + PWMPlus o On");
+    mvprintw(9, 0, " Errors: ");
+    print_status_chars(errors);
+    printw("    Key: . None o Open s Short   x DNE");
+}
+
+fn output_selected() {
+    mvprintw(11, 0, "Selected:     Status:          Value:      Applies to:          Applied:     ");
+}
+
+fn output_info(info: &str) {
+    mvprintw(13, 5, info);
 }
 
 const CMD_ESC: i32 = 27;
