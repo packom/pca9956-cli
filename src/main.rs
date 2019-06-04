@@ -4,9 +4,15 @@ use tokio_core::{reactor, reactor::Core};
 use clap::{App, Arg};
 use swagger::{make_context,make_context_ty};
 use swagger::{ContextBuilder, EmptyContext, XSpanIdString, Push, AuthData};
-use ncurses::{initscr, refresh, getch, endwin, printw, noecho, cbreak, mvprintw};
+use ncurses::{initscr, refresh, getch, endwin, printw, noecho, cbreak, mvprintw, mv, clrtoeol};
 use log::{debug, warn, info};
 use signal_hook::{register, SIGINT, SIGTERM};
+use lazy_static::lazy_static;
+use std::sync::Mutex;
+
+lazy_static! {
+    static ref LAST_INFO: Mutex<Vec<LedInfo>> = Mutex::new(vec![]);
+}
 
 struct Config {
     https: bool,
@@ -66,7 +72,7 @@ macro_rules! handle_sig {
 }
 
 
-fn exit(sig: i32, err: String) {
+fn exit(sig: i32, err: &str) {
     {
         endwin();
         warn!("Exiting due to {}", err);
@@ -145,13 +151,34 @@ fn create_client<'a>(conf: &Config, core: &Core) -> pca9956b_api::client::Client
     }
 }
 
-fn run(conf: &Config, mut core: &mut Core, client: &Client) {
+struct Action {
+    exit: bool,
+    refresh_led_info: bool,
+    refresh_selected: bool,
+    refresh_info: bool,
+    info: Option<String>,
+    selected: i32,
+}
+
+fn run(conf: &Config, core: &mut Core, client: &Client) {
     output_template();
-    refresh();
+    let mut action = process_input(conf, core, client, CMD_ENTER); // Reads LED status
     loop {
-        handle_info(get_info(&conf, &mut core, &client));
+        if action.exit {
+            exit(QUIT, &action.info.clone().unwrap());
+        }
+        if action.refresh_led_info {
+            handle_info(get_info(conf, core, client));
+        }
+        if action.refresh_selected {
+            output_selected(action.selected);
+        }
+        if action.refresh_info {
+            output_info(&action.info.unwrap());
+        }
+        mv(13,78); // End of info line
         refresh();
-        process_status(getch());
+        action = process_input(conf, core, client, getch());
     }
 }
 
@@ -162,7 +189,7 @@ fn get_info(conf: &Config, core: &mut Core, client: &Client) -> GetLedInfoAllRes
         _ => {
             let err = format!("Failure to get PCA9956B info: {:?}\n", result);
             printw(&err);
-            exit(ABORT, err);
+            exit(ABORT, &err);
             GetLedInfoAllResponse::OperationFailed(OpError{error: Some("API Call Failed".to_string())})
         },
     }
@@ -171,16 +198,20 @@ fn get_info(conf: &Config, core: &mut Core, client: &Client) -> GetLedInfoAllRes
 fn handle_info(info: GetLedInfoAllResponse) {
     match info {
         GetLedInfoAllResponse::OK(info) => {
+            store_info(&info);
             output_status(info);
-            output_selected();
-            output_info("Operation completed successfully");
         },
         _ => {
             let err = format!("Failure to get PCA9956B info: {:?}\n", info);
             printw(&err);
-            exit(ABORT, err);
+            exit(ABORT, &err);
         },
     }
+}
+
+fn store_info(info: &Vec<LedInfo>) {
+    LAST_INFO.lock().unwrap().clear();
+    LAST_INFO.lock().unwrap().append(&mut info.clone());
 }
 
 const LINE_DASHES: &str = "-------------------------------------------------------------------------------\n";
@@ -249,20 +280,113 @@ fn output_status(info: Vec<LedInfo>) {
     printw("    Key: . None o Open s Short   x DNE");
 }
 
-fn output_selected() {
-    mvprintw(11, 0, " Selected:     Status:          Value:      Applies to:          Applied:     ");
+fn output_selected(led: i32) {
+    assert!(led >= -1 && led <= 24);
+    let mut selected = format!("{}", led);
+    let status;
+    if led == 24 {
+        selected = "**".to_string();
+        status = "-------";
+    } else if led == -1 {
+        selected = "--".to_string();
+        status = "-------";
+    } else {
+        status = match LAST_INFO.lock().unwrap()[led as usize].state.unwrap() {
+            LedState::FALSE => "Off",
+            LedState::TRUE => "On",
+            LedState::PWM => "PWM",
+            LedState::PWMPLUS => "PWMPlus",
+        }
+    }
+    mvprintw(
+        11, 
+        0, 
+        &format!(
+            " Selected: {:>2}  Status: {:<7}  Value:      Applies to:          Applied:     ", 
+            selected, 
+            status
+        )
+    );
 }
 
 fn output_info(info: &str) {
-    mvprintw(13, 5, info);
+    mv(13, 5);
+    clrtoeol();
+    printw(info);
 }
 
+const CMD_ENTER: i32 = 10;
 const CMD_ESC: i32 = 27;
+const CMD_LEDS: [i32; 26] = [
+    'p' as i32, // -1 = None
+    'q' as i32, // LED 0
+    'w' as i32, // LED 1
+    'e' as i32, 
+    'r' as i32, 
+    't' as i32, 
+    'y' as i32, 
+    'u' as i32, 
+    'i' as i32, 
+    'a' as i32, 
+    's' as i32, 
+    'd' as i32, 
+    'f' as i32, 
+    'g' as i32, 
+    'h' as i32, 
+    'j' as i32, 
+    'k' as i32, 
+    'z' as i32, 
+    'x' as i32, 
+    'c' as i32, 
+    'v' as i32, 
+    'b' as i32, 
+    'n' as i32, 
+    'm' as i32, 
+    ',' as i32, // LED 23
+    'o' as i32, // Global
+];
 
-fn process_status(ch: i32) {
+fn process_input(conf: &Config, mut core: &mut Core, client: &Client, ch: i32) -> Action {
+    let mut action = Action{
+        exit: false,
+        refresh_led_info: false,
+        refresh_selected: false,
+        refresh_info: false,
+        info: None,
+        selected: -1,
+    };
     match ch {
-        CMD_ESC => exit(QUIT, "User termination".to_string()),
+        CMD_ESC => {
+            action.exit = true;
+            action.info = Some("User termination".to_string());
+        },
+        CMD_ENTER => {
+            output_info("Refreshing ... please wait");
+            mv(13,78);
+            refresh();
+            handle_info(get_info(&conf, &mut core, &client));
+            action.refresh_led_info = true;
+            action.refresh_selected = true;
+            action.refresh_info = true;
+            action.info = Some("Refreshed LED status".to_string());
+        },
         _ => (),
+    };
+    for (ii, led) in CMD_LEDS.iter().enumerate() {
+        if *led == ch {
+            action.refresh_selected = true;
+            action.selected = ii as i32;
+            action.selected -= 1; // 0th index should be -1 - for none
+            if action.selected == 24 {
+                action.info = Some("Selected Global".to_string());
+            } else if action.selected == -1 {
+                action.info = Some("No LED selected".to_string());
+            } else {
+                action.info = Some(format!("Selected LED {}", action.selected));
+            };
+            action.refresh_info = true;
+        }
     }
+    action
 }
 
