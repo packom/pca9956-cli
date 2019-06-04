@@ -5,7 +5,7 @@ use clap::{App, Arg};
 use swagger::{make_context,make_context_ty};
 use swagger::{ContextBuilder, EmptyContext, XSpanIdString, Push, AuthData};
 use ncurses::{initscr, refresh, getch, endwin, printw};
-use log::{debug, warn};
+use log::{debug, warn, info};
 use signal_hook::{register, SIGINT, SIGTERM};
 
 struct Config {
@@ -108,7 +108,7 @@ fn get_args() -> Config {
         .arg(Arg::with_name("addr")
             .long("addr")
             .takes_value(true)
-            .default_value("0")
+            .default_value("32")
             .help("PCA9956B I2C address"))
         .get_matches();
 
@@ -122,12 +122,11 @@ fn get_args() -> Config {
 }
 
 fn dump_args(conf: &Config) {
-  printw("Args\n");
-  printw(&format!("  https: {}\n", conf.https));
-  printw(&format!("  host:  {}\n", conf.host));
-  printw(&format!("  port:  {}\n", conf.port));
-  printw(&format!("  bus:   {}\n", conf.bus));
-  printw(&format!("  addr:  {}\n", conf.addr));
+  info!("Arg https: {}\n", conf.https);
+  info!("Arg host:  {}\n", conf.host);
+  info!("Arg port:  {}\n", conf.port);
+  info!("Arg bus:   {}\n", conf.bus);
+  info!("Arg addr:  {}\n", conf.addr);
 }
 
 fn create_client<'a>(conf: &Config, core: &Core) -> pca9956b_api::client::Client<hyper::client::FutureResponse> {
@@ -182,8 +181,51 @@ fn handle_info(info: GetLedInfoAllResponse) {
     }
 }
 
+//const LINE_DASHES: &str = "------------------------------------------------------------------------------\n";
+const LINE_DASHES: &str = "-----------\n";
+type CharStatus = [char; 24];
+
+fn print_status_chars(arr: [char; 24]) {
+    arr.into_iter().
+        enumerate().
+        filter(|(ii,x)| {
+            printw(&format!("{}", x));
+            (ii+1) % 4 == 0
+        }).
+        for_each(|(_,_)| {printw(" ");});
+}
+
 fn output_status(info: Vec<LedInfo>)
 {
+    let status: CharStatus = ['.'; 24];
+    let errors: CharStatus = ['.'; 24];
+    // XXX Actually build status and errros
+
+    printw(LINE_DASHES);
+    printw("                         --- PCA9956B Controller ---\n");
+    printw(LINE_DASHES);
+    printw(" Select LED:  q-i (0-7)  a-k (8-15)  z-, (16-23)  o (global)   Exit: <Esc>\n");
+    printw(" Select operation:  1 Off  2 On  3 PWM  4 PWMPlus\n");
+    printw(" Select value:  5 Current  6 PWM  7 Offset  8 GRPFREQ  9 GRPPWM  0 DimBlnk\n");
+    printw(" Modify selected value: <up> <down>   Apply selected value: <space>\n");
+    printw(LINE_DASHES);
+    // Status: .op+ .op+ .op+ .op+ .op+ .op+     Key: . Off  p PWM  + PWMPlus o On    
+    // Errors: .sox .... .... .... .... ....     Key: . None o Open s Short   x DNE
+    printw(" Status: ");
+    print_status_chars(status);
+    printw("    Key: . Off  p PWM  + PWMPlus o On\n");
+    printw(" Errors: ");
+    print_status_chars(errors);
+    printw("    Key: . None o Open s Short   x DNE\n");
+    printw(LINE_DASHES);
+    // Selected: 23  Status: PWMPlus  Value: 255  Applies to: Current  Applied: No  
+    printw(&format!(" Selected: {}  Status: {}  Value: {}  Applied to: {}  Applied: {}\n", "", "", "", "", ""));
+    printw(LINE_DASHES);
+    // ... LED 0: Current 254: Value applied    printw(LINE_DASHES);
+    printw(&format!(" ... {}\n", ""));
+    printw(LINE_DASHES);
+
+/*
     printw("Led Info ...\n");
     for led in info {
         printw(&format!(
@@ -195,6 +237,7 @@ fn output_status(info: Vec<LedInfo>)
             led.error.unwrap()
         ));
     }
+*/    
 }
 
 const CMD_Q: i32 = 'q' as i32;
