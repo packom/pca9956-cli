@@ -177,7 +177,7 @@ fn handle_info(info: GetLedInfoAllResponse) {
     }
 }
 
-const LINE_DASHES: &str = " ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ \n";
+const LINE_DASHES: &str = "-------------------------------------------------------------------------------\n";
 type CharStatus = [char; 24];
 
 fn print_status_chars(arr: [char; 24]) {
