@@ -4,7 +4,7 @@ use tokio_core::{reactor, reactor::Core};
 use clap::{App, Arg};
 use swagger::{make_context,make_context_ty};
 use swagger::{ContextBuilder, EmptyContext, XSpanIdString, Push, AuthData};
-use ncurses::{initscr, refresh, getch, endwin, printw, noecho, cbreak};
+use ncurses::{initscr, refresh, getch, endwin, printw, noecho, cbreak, mvprintw};
 use log::{debug, warn, info};
 use signal_hook::{register, SIGINT, SIGTERM};
 
@@ -196,7 +196,7 @@ fn output_status(info: Vec<LedInfo>)
     let errors: CharStatus = ['.'; 24];
     // XXX Actually build status and errros
 
-    printw(LINE_DASHES);
+    mvprintw(LINE_DASHES);
     printw("                         --- PCA9956B Controller ---\n");
     printw(LINE_DASHES);
     printw(" Select LED:  q-i (0-7)  a-k (8-15)  z-, (16-23)  o (global)   Exit: <Esc>\n");
