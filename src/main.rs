@@ -196,7 +196,7 @@ fn output_status(info: Vec<LedInfo>)
     let errors: CharStatus = ['.'; 24];
     // XXX Actually build status and errros
 
-    mvprintw(LINE_DASHES);
+    mvprintw(0, 0, LINE_DASHES);
     printw("                         --- PCA9956B Controller ---\n");
     printw(LINE_DASHES);
     printw(" Select LED:  q-i (0-7)  a-k (8-15)  z-, (16-23)  o (global)   Exit: <Esc>\n");
