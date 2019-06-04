@@ -4,7 +4,7 @@ use tokio_core::{reactor, reactor::Core};
 use clap::{App, Arg};
 use swagger::{make_context,make_context_ty};
 use swagger::{ContextBuilder, EmptyContext, XSpanIdString, Push, AuthData};
-use ncurses::{initscr, refresh, getch, endwin, printw};
+use ncurses::{initscr, refresh, getch, endwin, printw, noecho, cbreak};
 use log::{debug, warn, info};
 use signal_hook::{register, SIGINT, SIGTERM};
 
@@ -24,6 +24,8 @@ static ABORT: i32 = 1;
 
 fn main() {
     initscr();
+    noecho();
+    cbreak();
     env_logger::init();
     reg_for_sigs();
 
@@ -147,14 +149,8 @@ fn run(conf: &Config, mut core: &mut Core, client: &Client) {
     loop {
         handle_info(get_info(&conf, &mut core, &client));
         refresh();
-        process_status(get_char());
+        process_status(getch());
     }
-}
-
-fn get_char() -> i32 {
-    let ch = getch();
-    printw(&format!("{} {}", 8u8 as char, 8u8 as char));
-    ch
 }
 
 fn get_info(conf: &Config, core: &mut Core, client: &Client) -> GetLedInfoAllResponse {
@@ -181,8 +177,7 @@ fn handle_info(info: GetLedInfoAllResponse) {
     }
 }
 
-//const LINE_DASHES: &str = "------------------------------------------------------------------------------\n";
-const LINE_DASHES: &str = "-----------\n";
+const LINE_DASHES: &str = " ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ ------ \n";
 type CharStatus = [char; 24];
 
 fn print_status_chars(arr: [char; 24]) {
@@ -240,13 +235,11 @@ fn output_status(info: Vec<LedInfo>)
 */    
 }
 
-const CMD_Q: i32 = 'q' as i32;
-const CMD_X: i32 = 'x' as i32;
+const CMD_ESC: i32 = 27;
 
 fn process_status(ch: i32) {
     match ch {
-        CMD_Q => exit(QUIT, "User termination".to_string()),
-        CMD_X => exit(QUIT, "User termination".to_string()),
+        CMD_ESC => exit(QUIT, "User termination".to_string()),
         _ => (),
     }
 }
