@@ -13,6 +13,7 @@ use std::sync::Mutex;
 lazy_static! {
     static ref LAST_INFO: Mutex<Vec<LedInfo>> = Mutex::new(vec![]);
 }
+static SELECTED: i32 = -1;
 
 struct Config {
     https: bool,
@@ -171,7 +172,8 @@ fn run(conf: &Config, core: &mut Core, client: &Client) {
             handle_info(get_info(conf, core, client));
         }
         if action.refresh_selected {
-            output_selected(action.selected);
+            SELECTED = action.selected;
+            output_selected(SELECTED);
         }
         if action.refresh_info {
             output_info(&action.info.unwrap());
@@ -247,6 +249,8 @@ fn output_template() {
     // ... LED 0: Current 254: Value applied    printw(LINE_DASHES);
     printw(&format!(" ... \n"));
     printw(LINE_DASHES);
+
+    output_selected(SELECTED);
 }
 
 fn output_status(info: Vec<LedInfo>) {
