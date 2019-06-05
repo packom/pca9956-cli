@@ -4,16 +4,9 @@ use tokio_core::{reactor, reactor::Core};
 use clap::{App, Arg};
 use swagger::{make_context,make_context_ty};
 use swagger::{ContextBuilder, EmptyContext, XSpanIdString, Push, AuthData};
-use ncurses::{initscr, refresh, getch, endwin, printw, noecho, cbreak, mvprintw, mv, clrtoeol};
+use ncurses::{initscr, refresh, getch, endwin, printw, noecho, cbreak, mvprintw, mv, clrtoeol, timeout};
 use log::{debug, warn, info};
 use signal_hook::{register, SIGINT, SIGTERM};
-use lazy_static::lazy_static;
-use std::sync::Mutex;
-
-lazy_static! {
-    static ref LAST_INFO: Mutex<Vec<LedInfo>> = Mutex::new(vec![]);
-}
-static SELECTED: i32 = -1;
 
 struct Config {
     https: bool,
@@ -29,10 +22,20 @@ type Client<'a> = swagger::context::ContextWrapper<'a, pca9956b_api::client::Cli
 static QUIT: i32 = 0;
 static ABORT: i32 = 1;
 
+const START_LINE: i32 = 0;    
+const STATUS_LINE: i32 = 9;    
+const ERRORS_LINE: i32 = 10;    
+const SELECTED_LINE: i32 = 12;    
+const INFO_LINE: i32 = 14;    
+const INFO_COLUMN: i32 = 5;    
+const CURSOR_LINE: i32 = 14;    
+const CURSOR_COLUMN: i32 = 78;    
+
 fn main() {
     initscr();
     noecho();
     cbreak();
+    timeout(-1);
     env_logger::init();
     reg_for_sigs();
 
@@ -161,26 +164,33 @@ struct Action {
     selected: i32,
 }
 
+struct State {
+    selected: i32,
+}
+
 fn run(conf: &Config, core: &mut Core, client: &Client) {
     output_template();
-    let mut action = process_input(conf, core, client, CMD_ENTER); // Reads LED status
+    let mut state = State { selected: -1, };
+    let mut last_info: Vec<LedInfo> = vec![];
+    let mut action = process_input(conf, core, client, &state, CMD_ENTER); // Reads LED status
     loop {
         if action.exit {
             exit(QUIT, &action.info.clone().unwrap());
         }
         if action.refresh_led_info {
-            handle_info(get_info(conf, core, client));
+            handle_info(get_info(conf, core, client), &mut last_info);
+            output_status(&last_info);
         }
         if action.refresh_selected {
-            SELECTED = action.selected;
-            output_selected(SELECTED);
+            state.selected = action.selected;
+            output_selected(state.selected, &last_info);
         }
         if action.refresh_info {
             output_info(&action.info.unwrap());
         }
-        mv(13,78); // End of info line
+        mv(CURSOR_LINE, CURSOR_COLUMN); // End of info line
         refresh();
-        action = process_input(conf, core, client, getch());
+        action = process_input(conf, core, client, &state, getch());
     }
 }
 
@@ -197,11 +207,11 @@ fn get_info(conf: &Config, core: &mut Core, client: &Client) -> GetLedInfoAllRes
     }
 }
 
-fn handle_info(info: GetLedInfoAllResponse) {
+fn handle_info(info: GetLedInfoAllResponse, last_info: &mut Vec<LedInfo>) {
     match info {
         GetLedInfoAllResponse::OK(info) => {
-            store_info(&info);
-            output_status(info);
+            last_info.clear();
+            last_info.append(&mut info.clone());
         },
         _ => {
             let err = format!("Failure to get PCA9956B info: {:?}\n", info);
@@ -209,11 +219,6 @@ fn handle_info(info: GetLedInfoAllResponse) {
             exit(ABORT, &err);
         },
     }
-}
-
-fn store_info(info: &Vec<LedInfo>) {
-    LAST_INFO.lock().unwrap().clear();
-    LAST_INFO.lock().unwrap().append(&mut info.clone());
 }
 
 const LINE_DASHES: &str = "-------------------------------------------------------------------------------\n";
@@ -230,13 +235,14 @@ fn print_status_chars(arr: [char; 24]) {
 }
 
 fn output_template() {
-    mvprintw(0, 0, LINE_DASHES);
+    mvprintw(START_LINE, 0, LINE_DASHES);
     printw("                         --- PCA9956B Controller ---\n");
     printw(LINE_DASHES);
-    printw(" Select LED:  q-i (0-7)  a-k (8-15)  z-, (16-23)  o (global)   Exit: <Esc>\n");
+    printw(" Select LED:  0-7 <q-i>  8-15 <a-k>  16-23 <z-,>  o (global)  p (none)\n");
     printw(" Select operation:  1 Off  2 On  3 PWM  4 PWMPlus\n");
     printw(" Select value:  5 Current  6 PWM  7 Offset  8 GRPFREQ  9 GRPPWM  0 DimBlnk\n");
     printw(" Modify selected value: <up> <down>   Apply selected value: <space>\n");
+    printw(" Exit: <Esc>  Refresh All: <Enter>\n");
     printw(LINE_DASHES);
     // Status: .op+ .op+ .op+ .op+ .op+ .op+     Key: . Off  p PWM  + PWMPlus o On    
     // Errors: .sox .... .... .... .... ....     Key: . None o Open s Short   x DNE
@@ -249,11 +255,10 @@ fn output_template() {
     // ... LED 0: Current 254: Value applied    printw(LINE_DASHES);
     printw(&format!(" ... \n"));
     printw(LINE_DASHES);
-
-    output_selected(SELECTED);
+    mv(CURSOR_LINE, CURSOR_COLUMN); // End of info line
 }
 
-fn output_status(info: Vec<LedInfo>) {
+fn output_status(info: &Vec<LedInfo>) {
     let mut status: CharStatus = ['.'; 24];
     let mut errors: CharStatus = ['.'; 24];
 
@@ -276,15 +281,16 @@ fn output_status(info: Vec<LedInfo>) {
 
     // Status: .op+ .op+ .op+ .op+ .op+ .op+     Key: . Off  p PWM  + PWMPlus o On    
     // Errors: .sox .... .... .... .... ....     Key: . None o Open s Short   x DNE
-    mvprintw(8, 0, " Status: ");
+    mvprintw(STATUS_LINE, 0, " Status: ");
     print_status_chars(status);
     printw("    Key: . Off  p PWM  + PWMPlus o On");
-    mvprintw(9, 0, " Errors: ");
+    mvprintw(ERRORS_LINE, 0, " Errors: ");
     print_status_chars(errors);
     printw("    Key: . None o Open s Short   x DNE");
+    mv(CURSOR_LINE, CURSOR_COLUMN);
 }
 
-fn output_selected(led: i32) {
+fn output_selected(led: i32, last_info: &Vec<LedInfo>) {
     assert!(led >= -1 && led <= 24);
     let mut selected = format!("{}", led);
     let status;
@@ -295,7 +301,7 @@ fn output_selected(led: i32) {
         selected = "--".to_string();
         status = "-------";
     } else {
-        status = match LAST_INFO.lock().unwrap()[led as usize].state.unwrap() {
+        status = match last_info[led as usize].state.unwrap() {
             LedState::FALSE => "Off",
             LedState::TRUE => "On",
             LedState::PWM => "PWM",
@@ -303,7 +309,7 @@ fn output_selected(led: i32) {
         }
     }
     mvprintw(
-        11, 
+        SELECTED_LINE, 
         0, 
         &format!(
             " Selected: {:>2}  Status: {:<7}  Value:      Applies to:          Applied:     ", 
@@ -311,12 +317,14 @@ fn output_selected(led: i32) {
             status
         )
     );
+    mv(CURSOR_LINE, CURSOR_COLUMN);
 }
 
 fn output_info(info: &str) {
-    mv(13, 5);
+    mv(INFO_LINE, INFO_COLUMN);
     clrtoeol();
     printw(info);
+    mv(CURSOR_LINE, CURSOR_COLUMN);
 }
 
 const CMD_ENTER: i32 = 10;
@@ -350,7 +358,7 @@ const CMD_LEDS: [i32; 26] = [
     'o' as i32, // Global
 ];
 
-fn process_input(conf: &Config, mut core: &mut Core, client: &Client, ch: i32) -> Action {
+fn process_input(_conf: &Config, mut _core: &mut Core, _client: &Client, state: &State, ch: i32) -> Action {
     let mut action = Action{
         exit: false,
         refresh_led_info: false,
@@ -365,12 +373,11 @@ fn process_input(conf: &Config, mut core: &mut Core, client: &Client, ch: i32) -
             action.info = Some("User termination".to_string());
         },
         CMD_ENTER => {
-            output_info("Refreshing ... please wait");
-            mv(13,78);
+            output_info("Refreshing LED status ... please wait");
             refresh();
-            handle_info(get_info(&conf, &mut core, &client));
             action.refresh_led_info = true;
             action.refresh_selected = true;
+            action.selected = state.selected;
             action.refresh_info = true;
             action.info = Some("Refreshed LED status".to_string());
         },
