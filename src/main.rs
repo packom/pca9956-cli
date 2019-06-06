@@ -188,8 +188,6 @@ fn run(conf: &Config, core: &mut Core, client: &Client) {
         if action.refresh_info {
             output_info(&action.info.unwrap());
         }
-        mv(CURSOR_LINE, CURSOR_COLUMN); // End of info line
-        refresh();
         action = process_input(conf, core, client, &state, getch());
     }
 }
@@ -239,7 +237,7 @@ fn output_template() {
     printw("                         --- PCA9956B Controller ---\n");
     printw(LINE_DASHES);
     printw(" Select LED:  0-7 <q-i>  8-15 <a-k>  16-23 <z-,>  o (global)  p (none)\n");
-    printw(" Select operation:  1 Off  2 On  3 PWM  4 PWMPlus\n");
+    printw(" Select operation:  Off <1>  On <2>  PWM <3>  PWMPlus <4>\n");
     printw(" Select value:  5 Current  6 PWM  7 Offset  8 GRPFREQ  9 GRPPWM  0 DimBlnk\n");
     printw(" Modify selected value: <up> <down>   Apply selected value: <space>\n");
     printw(" Exit: <Esc>  Refresh All: <Enter>\n");
@@ -256,6 +254,7 @@ fn output_template() {
     printw(&format!(" ... \n"));
     printw(LINE_DASHES);
     mv(CURSOR_LINE, CURSOR_COLUMN); // End of info line
+    refresh();
 }
 
 fn output_status(info: &Vec<LedInfo>) {
@@ -269,7 +268,7 @@ fn output_status(info: &Vec<LedInfo>) {
                 LedState::FALSE => status[ii] = '.',
                 LedState::TRUE => status[ii] = 'o',
                 LedState::PWM => status[ii] = 'p',
-                LedState::PWMPLUS => status[ii] = 'o',
+                LedState::PWMPLUS => status[ii] = '+',
             };
             match x.error.unwrap() {
                 LedError::NONE => errors[ii] = '.',
@@ -288,6 +287,7 @@ fn output_status(info: &Vec<LedInfo>) {
     print_status_chars(errors);
     printw("    Key: . None o Open s Short   x DNE");
     mv(CURSOR_LINE, CURSOR_COLUMN);
+    refresh();
 }
 
 fn output_selected(led: i32, last_info: &Vec<LedInfo>) {
@@ -318,6 +318,7 @@ fn output_selected(led: i32, last_info: &Vec<LedInfo>) {
         )
     );
     mv(CURSOR_LINE, CURSOR_COLUMN);
+    refresh();
 }
 
 fn output_info(info: &str) {
@@ -325,10 +326,15 @@ fn output_info(info: &str) {
     clrtoeol();
     printw(info);
     mv(CURSOR_LINE, CURSOR_COLUMN);
+    refresh();
 }
 
-const CMD_ENTER: i32 = 10;
-const CMD_ESC: i32 = 27;
+const CMD_ENTER: i32 = 10; // LF
+const CMD_ESC: i32 = 27; // ESC
+const CMD_OFF: i32 = 49; // 1
+const CMD_ON: i32 = 50; // 2
+const CMD_PWM: i32 = 51; // 3
+const CMD_PWMPLUS: i32 = 52; // 4
 const CMD_LEDS: [i32; 26] = [
     'p' as i32, // -1 = None
     'q' as i32, // LED 0
@@ -358,14 +364,60 @@ const CMD_LEDS: [i32; 26] = [
     'o' as i32, // Global
 ];
 
-fn process_input(_conf: &Config, mut _core: &mut Core, _client: &Client, state: &State, ch: i32) -> Action {
+fn set_led_state(conf: &Config, core: &mut Core, client: &Client, led: i32, state: LedState) -> String {
+    output_info(&format!("Setting LED {} to {:?}", led, state));
+    let result = core.run(client.set_led_state(conf.bus, conf.addr, led, state));
+    match result {
+        Ok(_) => format!("Set LED {} to {:?}", led, state),
+        _ => {
+            info!("Failed to set LED {} to {:?}: {:?}\n", led, state, result);
+            format!("Failed to set LED {} to {:?}", led, state)
+        },
+    }
+}    
+
+fn valid_led(led: i32) -> bool {
+    led >= 0 && led < 24
+}
+
+enum LedState2 {
+    FALSE,
+    TRUE,
+    PWM,
+    PWMPLUS
+}
+
+impl From<i32> for LedState2 {
+    fn from(ch: i32) -> Self {
+        match ch {
+            CMD_OFF => LedState2::FALSE,
+            CMD_ON => LedState2::TRUE,
+            CMD_PWM => LedState2::PWM,
+            CMD_PWMPLUS => LedState2::PWMPLUS,
+            _ => panic!("Invalid LED state requested")
+        }
+    }
+}
+
+impl From<LedState2> for LedState {
+    fn from(ch: LedState2) -> Self {
+        match ch {
+            LedState2::FALSE => LedState::FALSE,
+            LedState2::TRUE => LedState::TRUE,
+            LedState2::PWM => LedState::PWM,
+            LedState2::PWMPLUS => LedState::PWMPLUS,
+        }
+    }
+}
+
+fn process_input(conf: &Config, core: &mut Core, client: &Client, state: &State, ch: i32) -> Action {
     let mut action = Action{
         exit: false,
         refresh_led_info: false,
         refresh_selected: false,
         refresh_info: false,
         info: None,
-        selected: -1,
+        selected: state.selected,
     };
     match ch {
         CMD_ESC => {
@@ -381,7 +433,15 @@ fn process_input(_conf: &Config, mut _core: &mut Core, _client: &Client, state: 
             action.refresh_info = true;
             action.info = Some("Refreshed LED status".to_string());
         },
-        _ => (),
+        _ => {
+            if (ch == CMD_OFF || ch == CMD_ON || ch == CMD_PWM || ch == CMD_PWMPLUS) && valid_led(state.selected) {
+                let ledstate2: LedState2 = ch.into();
+                action.info = Some(set_led_state(conf, core, client, state.selected, ledstate2.into()));
+                action.refresh_led_info = true;
+                action.refresh_selected = true;
+                action.refresh_info = true;
+            }
+        },
     };
     for (ii, led) in CMD_LEDS.iter().enumerate() {
         if *led == ch {
