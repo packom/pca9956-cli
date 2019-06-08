@@ -209,7 +209,7 @@ fn run(conf: &Config, core: &mut Core, client: &Client) {
         new_value: None
     };
     let mut last_info: Vec<LedInfo> = vec![];
-    let mut action = process_input(conf, core, client, &state, CMD_ENTER); // Reads LED status
+    let mut action = process_input(conf, core, client, &state, &last_info, CMD_ENTER); // Reads LED status
     loop {
         if action.exit {
             exit(QUIT, &action.info.clone().unwrap());
@@ -221,12 +221,13 @@ fn run(conf: &Config, core: &mut Core, client: &Client) {
         if action.refresh_selected {
             state.selected = action.selected;
             state.value_type = action.value_type;
+            state.new_value = action.new_value;
             output_selected(&state, &last_info);
         }
         if action.refresh_info {
             output_info(&action.info.unwrap());
         }
-        action = process_input(conf, core, client, &state, getch());
+        action = process_input(conf, core, client, &state, &last_info, getch());
     }
 }
 
@@ -523,7 +524,7 @@ impl From<LedState> for LedState2 {
     }
 }
 
-fn process_input(conf: &Config, core: &mut Core, client: &Client, state: &State, ch: i32) -> Action {
+fn process_input(conf: &Config, core: &mut Core, client: &Client, state: &State, last_info: &Vec<LedInfo>, ch: i32) -> Action {
     let mut action = Action {
         exit: false,
         refresh_led_info: false,
@@ -568,6 +569,8 @@ fn process_input(conf: &Config, core: &mut Core, client: &Client, state: &State,
                 action.info = Some(if action.selected == GLOBAL_LED {
                     "Selected Global".to_string()
                 } else if action.selected == NO_LED {
+                    action.new_value = None;
+                    action.value_type = None;
                     "No LED selected".to_string()
                 } else {
                     format!("Selected LED {}", action.selected)
@@ -586,8 +589,55 @@ fn process_input(conf: &Config, core: &mut Core, client: &Client, state: &State,
         let ch = getch();
         timeout(-1);
         match ch {
-            CMD_UP => action.info = Some(format!("Pressed Up")),
-            CMD_DOWN => action.info = Some(format!("Pressed Down")),
+            CMD_UP => {
+                action.info = Some(format!("No LED or value selected"));
+                if valid_led(state.selected) || state.selected == GLOBAL_LED {
+                    if state.value_type.is_some() {
+                        action.refresh_selected = true;
+                        action.new_value = match state.new_value {
+                            Some(x) => {
+                                Some(x+1)
+                            },
+                            None => {
+                                let val = get_value(last_info, &state.value_type.unwrap(), state.selected);
+                                if val.is_some() {
+                                    Some(val.unwrap()+1)
+                                } else {
+                                    None
+                                }
+                            },
+                        };
+                        if action.new_value.is_some() && action.new_value.unwrap() > 255 { 
+                            action.new_value = Some(255);
+                        }
+                        action.info = Some(format!("Incremented value"));
+                    }
+                };
+            },   
+            CMD_DOWN => {
+                if valid_led(state.selected) || state.selected == GLOBAL_LED {
+                    if state.value_type.is_some() {
+                        action.refresh_selected = true;
+                        action.new_value = match state.new_value {
+                            Some(x) => {
+                                Some(x.saturating_sub(1))
+                            },
+                            None => {
+                                let val = get_value(last_info, &state.value_type.unwrap(), state.selected);
+                                if val.is_some() {
+                                    Some(val.unwrap()-1)
+                                } else {
+                                    None
+                                }
+                            },
+                        };
+                        if action.new_value.is_some() && action.new_value.unwrap() < 0 { 
+                            action.new_value = Some(0);
+                        }
+                        action.info = Some(format!("Decremented value"));
+                    }
+                };
+            },
             -1 => if discard == -1 { // Means ESC was pressed
                 action.exit = true;
                 action.info = Some("User termination".to_string());
