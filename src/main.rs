@@ -397,6 +397,8 @@ const CMD_VALUE_GRPFREQ: i32 = 56; // 8
 const CMD_VALUE_GRPPWM: i32 = 57; // 9
 const CMD_VALUE_DIMBLNK: i32 = 48; // 0
 const CMD_VALUES_GLOBAL: [i32; 4] = [CMD_VALUE_OFFSET, CMD_VALUE_GRPFREQ, CMD_VALUE_GRPPWM, CMD_VALUE_DIMBLNK];
+const CMD_UP: i32 = 'A' as i32; // Up arrow is 10, 91, 65.  65 = A
+const CMD_DOWN: i32 = 'B' as i32; // Down arrow is 10, 91, 66.  66 = B
 
 const CMD_LEDS: [i32; 26] = [
     'p' as i32, // -1 = None
@@ -478,7 +480,6 @@ impl std::fmt::Display for LedState2 {
     }
 }
 
-
 impl From<i32> for LedState2 {
     fn from(ch: i32) -> Self {
         match ch {
@@ -524,10 +525,7 @@ fn process_input(conf: &Config, core: &mut Core, client: &Client, state: &State,
         value_type: state.value_type.clone(),
         value: state.value,
     };
-    if ch == CMD_ESC {
-        action.exit = true;
-        action.info = Some("User termination".to_string());
-    } else if ch == CMD_ENTER {
+    if ch == CMD_ENTER {
         output_info("Refreshing LED status ... please wait");
         refresh();
         action.refresh_led_info = true;
@@ -572,6 +570,24 @@ fn process_input(conf: &Config, core: &mut Core, client: &Client, state: &State,
         action.value_type = ValueType::from_cmd(ch);
         action.info = Some(format!("Selected {} Value", action.value_type.clone().unwrap()));
         action.refresh_selected = true;
+        action.refresh_info = true;
+    } else if ch == CMD_ESC {
+        timeout(0);
+        let discard = getch();
+        let ch = getch();
+        timeout(-1);
+        match ch {
+            CMD_UP => action.info = Some(format!("Pressed Up")),
+            CMD_DOWN => action.info = Some(format!("Pressed Down")),
+            -1 => if discard == -1 { // Means ESC was pressed
+                action.exit = true;
+                action.info = Some("User termination".to_string());
+            }
+            _ => action.info = Some(format!("Unknown key-press {}, {}", discard, ch)),
+        }
+        action.refresh_info = true;
+    } else {
+        action.info = Some(format!("Unknown key-press {}", ch));
         action.refresh_info = true;
     }
 
