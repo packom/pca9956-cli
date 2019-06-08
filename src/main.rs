@@ -556,13 +556,13 @@ fn process_input(conf: &Config, core: &mut Core, client: &Client, state: &State,
                 action.refresh_selected = true;
                 action.selected = ii as i32;
                 action.selected -= 1; // 0th index should be -1 - for none
-                if action.selected == GLOBAL_LED {
-                    action.info = Some("Selected Global".to_string());
+                action.info = Some(if action.selected == GLOBAL_LED {
+                    "Selected Global".to_string()
                 } else if action.selected == NO_LED {
-                    action.info = Some("No LED selected".to_string());
+                    "No LED selected".to_string()
                 } else {
-                    action.info = Some(format!("Selected LED {}", action.selected));
-                };
+                    format!("Selected LED {}", action.selected)
+                });
                 action.refresh_info = true;
             }
         }
