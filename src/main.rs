@@ -393,6 +393,7 @@ fn output_info(info: &str) {
 }
 
 const CMD_ENTER: i32 = 10; // LF
+const CMD_APPLY: i32 = 32; // Space
 const CMD_ESC: i32 = 27; // ESC
 const CMD_MODE_OFF: i32 = 49; // 1
 const CMD_MODE_ON: i32 = 50; // 2
@@ -524,6 +525,32 @@ impl From<LedState> for LedState2 {
     }
 }
 
+fn set_led_value(conf: &Config, core: &mut Core, client: &Client, led: i32, ty: ValueType, val: u32) -> String {
+    output_info(&format!("Setting LED {} {} to {}", led, ty, val));
+    match ty {
+        ValueType::Current => {
+            let result = core.run(client.set_led_current(conf.bus, conf.addr, led, val as i32));
+            match result {
+                Ok(_) => format!("Set LED {} {} to {}", led, ty, val),
+                _ => {
+                    info!("Failed to set LED {} {} to {}: {:?}\n", led, ty, val, result);
+                    format!("Failed to set LED {} {} to {}", led, ty, val)
+                },
+            }
+        },
+        ValueType::Pwm => {
+            let result = core.run(client.set_led_pwm(conf.bus, conf.addr, led, val as i32));
+            match result {
+                Ok(_) => format!("Set LED {} {} to {}", led, ty, val),
+                _ => {
+                    info!("Failed to set LED {} {} to {}: {:?}\n", led, ty, val, result);
+                    format!("Failed to set LED {} {} to {}", led, ty, val)
+                },
+            }
+        },
+    }
+}    
+
 fn process_input(conf: &Config, core: &mut Core, client: &Client, state: &State, last_info: &Vec<LedInfo>, ch: i32) -> Action {
     let mut action = Action {
         exit: false,
@@ -644,6 +671,21 @@ fn process_input(conf: &Config, core: &mut Core, client: &Client, state: &State,
                 action.info = Some("User termination".to_string());
             }
             _ => action.info = Some(format!("Unknown key-press {}, {}", discard, ch)),
+        }
+        action.refresh_info = true;
+    } else if ch == CMD_APPLY {
+        action.info = Some(format!("No LED or value selected, or value unchanged"));
+        // XXX Need to support global led
+        //if valid_led(state.selected) || state.selected == GLOBAL_LED {
+        if valid_led(state.selected) {
+            if state.value_type.is_some() {
+                if state.new_value.is_some() {
+                    action.info = Some(set_led_value(conf, core, client, state.selected, state.value_type.unwrap(), state.new_value.unwrap()));
+                }
+                action.new_value = None;
+                action.refresh_led_info = true;
+                action.refresh_selected = true;
+            }
         }
         action.refresh_info = true;
     } else {
