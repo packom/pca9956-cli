@@ -24,7 +24,7 @@ struct Action {
     info: Option<String>,
     selected: i32,
     value_type: Option<ValueType>,
-    value: Option<u32>,
+    new_value: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -55,7 +55,7 @@ impl std::fmt::Display for ValueType {
 struct State {
     selected: i32,
     value_type: Option<ValueType>,
-    value: Option<u32>,
+    new_value: Option<u32>,
 }
 
 type ClientContext = make_context_ty!(ContextBuilder, EmptyContext, Option<AuthData>, XSpanIdString);
@@ -203,7 +203,11 @@ fn create_client<'a>(conf: &Config, core: &Core) -> pca9956b_api::client::Client
 
 fn run(conf: &Config, core: &mut Core, client: &Client) {
     output_template();
-    let mut state = State { selected: NO_LED, value_type: None, value: None};
+    let mut state = State {
+        selected: NO_LED,
+        value_type: None,
+        new_value: None
+    };
     let mut last_info: Vec<LedInfo> = vec![];
     let mut action = process_input(conf, core, client, &state, CMD_ENTER); // Reads LED status
     loop {
@@ -334,7 +338,7 @@ fn output_selected(state: &State, last_info: &Vec<LedInfo>) {
     let led = state.selected;
     assert!(led >= NO_LED && led <= GLOBAL_LED);
     let mut selected = format!("{}", led);
-    let applies_to = match &state.value_type {
+    let val_type = match &state.value_type {
         Some(x) => x.to_string(),
         None => dashes(7),
     };
@@ -359,15 +363,20 @@ fn output_selected(state: &State, last_info: &Vec<LedInfo>) {
         let l: LedState2 = last_info[led as usize].state.unwrap().into();
         status = l.to_string();
     }
+    let new_val = match state.new_value {
+        Some(x) => format!("{}", x),
+        None => dashes(3),
+    };
     mvprintw(
         SELECTED_LINE, 
         0, 
         &format!(
-            " Selected: {:>2}  Status: {:<7}  Value: {:<3}  Applies to: {:<7}  Applied:     ", 
+            " Selected: {:>2}  Status: {:<7}  Val Type: {:<7}  Cur Val: {:<3}  New Val: {:<3}", 
             selected, 
             status,
+            val_type,
             value,
-            applies_to,
+            new_val,
         )
     );
     mv(CURSOR_LINE, CURSOR_COLUMN);
@@ -523,7 +532,7 @@ fn process_input(conf: &Config, core: &mut Core, client: &Client, state: &State,
         info: None,
         selected: state.selected,
         value_type: state.value_type.clone(),
-        value: state.value,
+        new_value: state.new_value,
     };
     if ch == CMD_ENTER {
         output_info("Refreshing LED status ... please wait");
