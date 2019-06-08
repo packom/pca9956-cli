@@ -324,38 +324,40 @@ fn output_status(info: &Vec<LedInfo>) {
     refresh();
 }
 
+fn dashes(num: usize) -> String {
+    let mut dashes = String::new();
+    (0..num).into_iter().for_each(|_| dashes.push('-'));
+    dashes
+}
+
 fn output_selected(state: &State, last_info: &Vec<LedInfo>) {
     let led = state.selected;
     assert!(led >= NO_LED && led <= GLOBAL_LED);
     let mut selected = format!("{}", led);
     let applies_to = match &state.value_type {
         Some(x) => x.to_string(),
-        None => "-------".to_string(),
+        None => dashes(7),
     };
     let value = match state.value_type {
         Some(x) => {
             let val = get_value(last_info, &x, led);
             match val {
                 Some(x) => format!("{}", x),
-                None => "---".to_string(),
+                None => dashes(3),
             }
         },
-        None => "---".to_string(),
+        None => dashes(3),
     };
     let status;
     if led == GLOBAL_LED {
         selected = "**".to_string();
-        status = "-------";
+        status = dashes(7);
     } else if led == NO_LED {
-        selected = "--".to_string();
-        status = "-------";
+        selected = dashes(2);
+        status = dashes(7);
     } else {
-        status = match last_info[led as usize].state.unwrap() {
-            LedState::FALSE => "Off",
-            LedState::TRUE => "On",
-            LedState::PWM => "PWM",
-            LedState::PWMPLUS => "PWMPlus",
-        }
+        let l: LedState2 = last_info[led as usize].state.unwrap().into();
+        status = l.to_string();
     }
     mvprintw(
         SELECTED_LINE, 
@@ -426,13 +428,14 @@ const CMD_LEDS: [i32; 26] = [
 ];
 
 fn set_led_state(conf: &Config, core: &mut Core, client: &Client, led: i32, state: LedState) -> String {
-    output_info(&format!("Setting LED {} to {:?}", led, state));
+    let s2: LedState2 = state.into();
+    output_info(&format!("Setting LED {} to {}", led, s2));
     let result = core.run(client.set_led_state(conf.bus, conf.addr, led, state));
     match result {
-        Ok(_) => format!("Set LED {} to {:?}", led, state),
+        Ok(_) => format!("Set LED {} to {}", led, s2),
         _ => {
-            info!("Failed to set LED {} to {:?}: {:?}\n", led, state, result);
-            format!("Failed to set LED {} to {:?}", led, state)
+            info!("Failed to set LED {} to {}: {:?}\n", led, s2, result);
+            format!("Failed to set LED {} to {}", led, s2)
         },
     }
 }    
@@ -458,17 +461,29 @@ fn get_value(last_info: &Vec<LedInfo>, ty: &ValueType, led: i32) -> Option<u32> 
 }
 
 enum LedState2 {
-    FALSE,
-    TRUE,
+    OFF,
+    ON,
     PWM,
     PWMPLUS
 }
 
+impl std::fmt::Display for LedState2 {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            LedState2::OFF => write!(f, "Off"),
+            LedState2::ON => write!(f, "On"),
+            LedState2::PWM => write!(f, "PWM"),
+            LedState2::PWMPLUS => write!(f, "PWMPlus"),
+        }
+    }
+}
+
+
 impl From<i32> for LedState2 {
     fn from(ch: i32) -> Self {
         match ch {
-            CMD_MODE_OFF => LedState2::FALSE,
-            CMD_MODE_ON => LedState2::TRUE,
+            CMD_MODE_OFF => LedState2::OFF,
+            CMD_MODE_ON => LedState2::ON,
             CMD_MODE_PWM => LedState2::PWM,
             CMD_MODE_PWMPLUS => LedState2::PWMPLUS,
             _ => panic!("Invalid LED state requested")
@@ -477,12 +492,23 @@ impl From<i32> for LedState2 {
 }
 
 impl From<LedState2> for LedState {
-    fn from(ch: LedState2) -> Self {
-        match ch {
-            LedState2::FALSE => LedState::FALSE,
-            LedState2::TRUE => LedState::TRUE,
+    fn from(state: LedState2) -> Self {
+        match state {
+            LedState2::OFF => LedState::FALSE,
+            LedState2::ON => LedState::TRUE,
             LedState2::PWM => LedState::PWM,
             LedState2::PWMPLUS => LedState::PWMPLUS,
+        }
+    }
+}
+
+impl From<LedState> for LedState2 {
+    fn from(state: LedState) -> Self {
+        match state {
+            LedState::FALSE => LedState2::OFF,
+            LedState::TRUE => LedState2::ON,
+            LedState::PWM => LedState2::PWM,
+            LedState::PWMPLUS => LedState2::PWMPLUS,
         }
     }
 }
