@@ -606,8 +606,12 @@ fn process_input(conf: &Config, core: &mut Core, client: &Client, state: &State,
             }
         }
     } else if CMD_VALUES_LED.contains(&ch) {
-        action.value_type = ValueType::from_cmd(ch);
-        action.info = Some(format!("Selected {} Value", action.value_type.clone().unwrap()));
+        if valid_led(state.selected) || state.selected == GLOBAL_LED {
+            action.value_type = ValueType::from_cmd(ch);
+            action.info = Some(format!("Selected {} Value", action.value_type.clone().unwrap()));
+        } else {
+            action.info = Some("No LED selected".to_string());
+        }
         action.new_value = None;
         action.refresh_selected = true;
         action.refresh_info = true;
