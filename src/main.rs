@@ -23,11 +23,23 @@ struct Action {
     refresh_info: bool,
     info: Option<String>,
     selected: i32,
+    value_type: Option<ValueType>,
 }
 
+#[derive(Debug, Clone, Copy)]
 enum ValueType {
     Current,
     Pwm,
+}
+
+impl ValueType {
+    fn from_cmd(ch:i32) -> Option<Self> {
+        match ch {
+            CMD_VALUE_CURRENT => Some(ValueType::Current),
+            CMD_VALUE_PWM => Some(ValueType::Pwm),
+            _ => None,
+        }
+    }
 }
 
 impl std::fmt::Display for ValueType {
@@ -202,6 +214,7 @@ fn run(conf: &Config, core: &mut Core, client: &Client) {
         }
         if action.refresh_selected {
             state.selected = action.selected;
+            state.value_type = action.value_type;
             output_selected(&state, &last_info);
         }
         if action.refresh_info {
@@ -314,7 +327,7 @@ fn output_selected(state: &State, last_info: &Vec<LedInfo>) {
     assert!(led >= NO_LED && led <= GLOBAL_LED);
     let mut selected = format!("{}", led);
     let applies_to = match &state.value_type {
-        Some(x) => format!("{}", x),
+        Some(x) => x.to_string(),
         None => "-------".to_string(),
     };
     let status;
@@ -446,13 +459,14 @@ impl From<LedState2> for LedState {
 }
 
 fn process_input(conf: &Config, core: &mut Core, client: &Client, state: &State, ch: i32) -> Action {
-    let mut action = Action{
+    let mut action = Action {
         exit: false,
         refresh_led_info: false,
         refresh_selected: false,
         refresh_info: false,
         info: None,
         selected: state.selected,
+        value_type: state.value_type.clone(),
     };
     if ch == CMD_ESC {
         action.exit = true;
@@ -462,7 +476,6 @@ fn process_input(conf: &Config, core: &mut Core, client: &Client, state: &State,
         refresh();
         action.refresh_led_info = true;
         action.refresh_selected = true;
-        action.selected = state.selected;
         action.refresh_info = true;
         action.info = Some("Refreshed LED status".to_string());
     } else if CMD_MODES.contains(&ch) {
@@ -499,6 +512,11 @@ fn process_input(conf: &Config, core: &mut Core, client: &Client, state: &State,
                 action.refresh_info = true;
             }
         }
+    } else if CMD_VALUES_LED.contains(&ch) {
+        action.value_type = ValueType::from_cmd(ch);
+        action.info = Some(format!("Selected {} Value", action.value_type.clone().unwrap()));
+        action.refresh_selected = true;
+        action.refresh_info = true;
     }
 
     action
