@@ -24,6 +24,7 @@ struct Action {
     info: Option<String>,
     selected: i32,
     value_type: Option<ValueType>,
+    value: Option<u32>,
 }
 
 #[derive(Debug, Clone, Copy)]
@@ -54,6 +55,7 @@ impl std::fmt::Display for ValueType {
 struct State {
     selected: i32,
     value_type: Option<ValueType>,
+    value: Option<u32>,
 }
 
 type ClientContext = make_context_ty!(ContextBuilder, EmptyContext, Option<AuthData>, XSpanIdString);
@@ -201,7 +203,7 @@ fn create_client<'a>(conf: &Config, core: &Core) -> pca9956b_api::client::Client
 
 fn run(conf: &Config, core: &mut Core, client: &Client) {
     output_template();
-    let mut state = State { selected: NO_LED, value_type: None, };
+    let mut state = State { selected: NO_LED, value_type: None, value: None};
     let mut last_info: Vec<LedInfo> = vec![];
     let mut action = process_input(conf, core, client, &state, CMD_ENTER); // Reads LED status
     loop {
@@ -330,6 +332,16 @@ fn output_selected(state: &State, last_info: &Vec<LedInfo>) {
         Some(x) => x.to_string(),
         None => "-------".to_string(),
     };
+    let value = match state.value_type {
+        Some(x) => {
+            let val = get_value(last_info, &x, led);
+            match val {
+                Some(x) => format!("{}", x),
+                None => "---".to_string(),
+            }
+        },
+        None => "---".to_string(),
+    };
     let status;
     if led == GLOBAL_LED {
         selected = "**".to_string();
@@ -349,9 +361,10 @@ fn output_selected(state: &State, last_info: &Vec<LedInfo>) {
         SELECTED_LINE, 
         0, 
         &format!(
-            " Selected: {:>2}  Status: {:<7}  Value:      Applies to: {:<7}  Applied:     ", 
+            " Selected: {:>2}  Status: {:<7}  Value: {:<3}  Applies to: {:<7}  Applied:     ", 
             selected, 
             status,
+            value,
             applies_to,
         )
     );
@@ -428,6 +441,22 @@ fn valid_led(led: i32) -> bool {
     led >= 0 && led < NUM_LEDS as i32
 }
 
+fn get_value(last_info: &Vec<LedInfo>, ty: &ValueType, led: i32) -> Option<u32> {
+    if led >= 0 && led < NUM_LEDS as i32 {
+        let led = led as usize;
+        if last_info.len() > led {
+            Some(match ty {
+                ValueType::Current => last_info[led].current.unwrap(),
+                ValueType::Pwm => last_info[led].pwm.unwrap(),
+            })
+        } else {
+            None
+        }
+    } else {
+        None // Note global values only writable not readable
+    }
+}
+
 enum LedState2 {
     FALSE,
     TRUE,
@@ -467,6 +496,7 @@ fn process_input(conf: &Config, core: &mut Core, client: &Client, state: &State,
         info: None,
         selected: state.selected,
         value_type: state.value_type.clone(),
+        value: state.value,
     };
     if ch == CMD_ESC {
         action.exit = true;
