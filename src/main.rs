@@ -660,9 +660,6 @@ fn process_input(conf: &Config, core: &mut Core, client: &Client, state: &State,
                                 }
                             },
                         };
-                        if action.new_value.is_some() && action.new_value.unwrap() < 0 { 
-                            action.new_value = Some(0);
-                        }
                         action.info = Some(format!("Decremented value"));
                     }
                 };
