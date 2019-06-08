@@ -615,6 +615,7 @@ fn process_input(conf: &Config, core: &mut Core, client: &Client, state: &State,
                 };
             },   
             CMD_DOWN => {
+                action.info = Some(format!("No LED or value selected"));
                 if valid_led(state.selected) || state.selected == GLOBAL_LED {
                     if state.value_type.is_some() {
                         action.refresh_selected = true;
