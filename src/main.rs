@@ -16,6 +16,34 @@ struct Config {
     addr: i32,
 }
 
+struct Action {
+    exit: bool,
+    refresh_led_info: bool,
+    refresh_selected: bool,
+    refresh_info: bool,
+    info: Option<String>,
+    selected: i32,
+}
+
+enum ValueType {
+    Current,
+    Pwm,
+}
+
+impl std::fmt::Display for ValueType {
+    fn fmt(&self, f: &mut std::fmt::Formatter) -> std::fmt::Result {
+        match self {
+            ValueType::Current => write!(f, "Current"),
+            ValueType::Pwm => write!(f, "PWM"),
+        }
+    }
+}
+
+struct State {
+    selected: i32,
+    value_type: Option<ValueType>,
+}
+
 type ClientContext = make_context_ty!(ContextBuilder, EmptyContext, Option<AuthData>, XSpanIdString);
 type Client<'a> = swagger::context::ContextWrapper<'a, pca9956b_api::client::Client<hyper::client::FutureResponse>, ClientContext>;
 
@@ -159,22 +187,9 @@ fn create_client<'a>(conf: &Config, core: &Core) -> pca9956b_api::client::Client
     }
 }
 
-struct Action {
-    exit: bool,
-    refresh_led_info: bool,
-    refresh_selected: bool,
-    refresh_info: bool,
-    info: Option<String>,
-    selected: i32,
-}
-
-struct State {
-    selected: i32,
-}
-
 fn run(conf: &Config, core: &mut Core, client: &Client) {
     output_template();
-    let mut state = State { selected: NO_LED, };
+    let mut state = State { selected: NO_LED, value_type: None, };
     let mut last_info: Vec<LedInfo> = vec![];
     let mut action = process_input(conf, core, client, &state, CMD_ENTER); // Reads LED status
     loop {
@@ -187,7 +202,7 @@ fn run(conf: &Config, core: &mut Core, client: &Client) {
         }
         if action.refresh_selected {
             state.selected = action.selected;
-            output_selected(state.selected, &last_info);
+            output_selected(&state, &last_info);
         }
         if action.refresh_info {
             output_info(&action.info.unwrap());
@@ -294,9 +309,14 @@ fn output_status(info: &Vec<LedInfo>) {
     refresh();
 }
 
-fn output_selected(led: i32, last_info: &Vec<LedInfo>) {
+fn output_selected(state: &State, last_info: &Vec<LedInfo>) {
+    let led = state.selected;
     assert!(led >= NO_LED && led <= GLOBAL_LED);
     let mut selected = format!("{}", led);
+    let applies_to = match &state.value_type {
+        Some(x) => format!("{}", x),
+        None => "-------".to_string(),
+    };
     let status;
     if led == GLOBAL_LED {
         selected = "**".to_string();
@@ -316,9 +336,10 @@ fn output_selected(led: i32, last_info: &Vec<LedInfo>) {
         SELECTED_LINE, 
         0, 
         &format!(
-            " Selected: {:>2}  Status: {:<7}  Value:      Applies to:          Applied:     ", 
+            " Selected: {:>2}  Status: {:<7}  Value:      Applies to: {:<7}  Applied:     ", 
             selected, 
-            status
+            status,
+            applies_to,
         )
     );
     mv(CURSOR_LINE, CURSOR_COLUMN);
@@ -433,57 +454,53 @@ fn process_input(conf: &Config, core: &mut Core, client: &Client, state: &State,
         info: None,
         selected: state.selected,
     };
-    match ch {
-        CMD_ESC => {
-            action.exit = true;
-            action.info = Some("User termination".to_string());
-        },
-        CMD_ENTER => {
-            output_info("Refreshing LED status ... please wait");
-            refresh();
+    if ch == CMD_ESC {
+        action.exit = true;
+        action.info = Some("User termination".to_string());
+    } else if ch == CMD_ENTER {
+        output_info("Refreshing LED status ... please wait");
+        refresh();
+        action.refresh_led_info = true;
+        action.refresh_selected = true;
+        action.selected = state.selected;
+        action.refresh_info = true;
+        action.info = Some("Refreshed LED status".to_string());
+    } else if CMD_MODES.contains(&ch) {
+        let ch: LedState2 = ch.into();
+        let ledstate: LedState = ch.into();
+        let mut leds = vec![];
+        if valid_led(state.selected) {
+            leds.push(state.selected);
+        } else if state.selected == GLOBAL_LED {
+            let mut l = (0..24).collect();
+            leds.append(&mut l);
+        }
+        if !leds.is_empty() {
+            for led in leds {
+                action.info = Some(set_led_state(conf, core, client, led, ledstate));
+            }
             action.refresh_led_info = true;
             action.refresh_selected = true;
-            action.selected = state.selected;
-            action.refresh_info = true;
-            action.info = Some("Refreshed LED status".to_string());
-        },
-        _ => {
-            if CMD_MODES.contains(&ch) {
-                let ch: LedState2 = ch.into();
-                let ledstate: LedState = ch.into();
-                let mut leds = vec![];
-                if valid_led(state.selected) {
-                    leds.push(state.selected);
-                } else if state.selected == GLOBAL_LED {
-                    let mut l = (0..24).collect();
-                    leds.append(&mut l);
-                }
-                if !leds.is_empty() {
-                    for led in leds {
-                        action.info = Some(set_led_state(conf, core, client, led, ledstate));
-                    }
-                    action.refresh_led_info = true;
-                    action.refresh_selected = true;
-                    action.refresh_info = true;
-                }
-            }
-        },
-    };
-    for (ii, led) in CMD_LEDS.iter().enumerate() {
-        if *led == ch {
-            action.refresh_selected = true;
-            action.selected = ii as i32;
-            action.selected -= 1; // 0th index should be -1 - for none
-            if action.selected == GLOBAL_LED {
-                action.info = Some("Selected Global".to_string());
-            } else if action.selected == NO_LED {
-                action.info = Some("No LED selected".to_string());
-            } else {
-                action.info = Some(format!("Selected LED {}", action.selected));
-            };
             action.refresh_info = true;
         }
+    } else if CMD_LEDS.contains(&ch) {
+        for (ii, led) in CMD_LEDS.iter().enumerate() {
+            if *led == ch {
+                action.refresh_selected = true;
+                action.selected = ii as i32;
+                action.selected -= 1; // 0th index should be -1 - for none
+                if action.selected == GLOBAL_LED {
+                    action.info = Some("Selected Global".to_string());
+                } else if action.selected == NO_LED {
+                    action.info = Some("No LED selected".to_string());
+                } else {
+                    action.info = Some(format!("Selected LED {}", action.selected));
+                };
+                action.refresh_info = true;
+            }
+        }
     }
+
     action
 }
 
