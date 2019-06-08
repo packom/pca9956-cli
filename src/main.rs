@@ -29,7 +29,11 @@ const SELECTED_LINE: i32 = 12;
 const INFO_LINE: i32 = 14;    
 const INFO_COLUMN: i32 = 5;    
 const CURSOR_LINE: i32 = 14;    
-const CURSOR_COLUMN: i32 = 78;    
+const CURSOR_COLUMN: i32 = 78;   
+
+const NO_LED: i32 = -1;
+const NUM_LEDS: usize = 24;
+const GLOBAL_LED: i32 = 24;
 
 fn main() {
     initscr();
@@ -170,7 +174,7 @@ struct State {
 
 fn run(conf: &Config, core: &mut Core, client: &Client) {
     output_template();
-    let mut state = State { selected: -1, };
+    let mut state = State { selected: NO_LED, };
     let mut last_info: Vec<LedInfo> = vec![];
     let mut action = process_input(conf, core, client, &state, CMD_ENTER); // Reads LED status
     loop {
@@ -220,9 +224,9 @@ fn handle_info(info: GetLedInfoAllResponse, last_info: &mut Vec<LedInfo>) {
 }
 
 const LINE_DASHES: &str = "-------------------------------------------------------------------------------\n";
-type CharStatus = [char; 24];
+type CharStatus = [char; NUM_LEDS];
 
-fn print_status_chars(arr: [char; 24]) {
+fn print_status_chars(arr: [char; NUM_LEDS]) {
     arr.into_iter().
         enumerate().
         filter(|(ii,x)| {
@@ -258,8 +262,8 @@ fn output_template() {
 }
 
 fn output_status(info: &Vec<LedInfo>) {
-    let mut status: CharStatus = ['.'; 24];
-    let mut errors: CharStatus = ['.'; 24];
+    let mut status: CharStatus = ['.'; NUM_LEDS];
+    let mut errors: CharStatus = ['.'; NUM_LEDS];
 
     info.iter().
         enumerate().
@@ -291,13 +295,13 @@ fn output_status(info: &Vec<LedInfo>) {
 }
 
 fn output_selected(led: i32, last_info: &Vec<LedInfo>) {
-    assert!(led >= -1 && led <= 24);
+    assert!(led >= NO_LED && led <= GLOBAL_LED);
     let mut selected = format!("{}", led);
     let status;
-    if led == 24 {
+    if led == GLOBAL_LED {
         selected = "**".to_string();
         status = "-------";
-    } else if led == -1 {
+    } else if led == NO_LED {
         selected = "--".to_string();
         status = "-------";
     } else {
@@ -331,10 +335,20 @@ fn output_info(info: &str) {
 
 const CMD_ENTER: i32 = 10; // LF
 const CMD_ESC: i32 = 27; // ESC
-const CMD_OFF: i32 = 49; // 1
-const CMD_ON: i32 = 50; // 2
-const CMD_PWM: i32 = 51; // 3
-const CMD_PWMPLUS: i32 = 52; // 4
+const CMD_MODE_OFF: i32 = 49; // 1
+const CMD_MODE_ON: i32 = 50; // 2
+const CMD_MODE_PWM: i32 = 51; // 3
+const CMD_MODE_PWMPLUS: i32 = 52; // 4
+const CMD_MODES: [i32; 4] = [CMD_MODE_OFF, CMD_MODE_ON, CMD_MODE_PWM, CMD_MODE_PWMPLUS];
+const CMD_VALUE_CURRENT: i32 = 53; // 5
+const CMD_VALUE_PWM: i32 = 54; // 6
+const CMD_VALUES_LED: [i32; 2] = [CMD_VALUE_CURRENT, CMD_VALUE_PWM];
+const CMD_VALUE_OFFSET: i32 = 55; // 7
+const CMD_VALUE_GRPFREQ: i32 = 56; // 8
+const CMD_VALUE_GRPPWM: i32 = 57; // 9
+const CMD_VALUE_DIMBLNK: i32 = 48; // 0
+const CMD_VALUES_GLOBAL: [i32; 4] = [CMD_VALUE_OFFSET, CMD_VALUE_GRPFREQ, CMD_VALUE_GRPPWM, CMD_VALUE_DIMBLNK];
+
 const CMD_LEDS: [i32; 26] = [
     'p' as i32, // -1 = None
     'q' as i32, // LED 0
@@ -377,7 +391,7 @@ fn set_led_state(conf: &Config, core: &mut Core, client: &Client, led: i32, stat
 }    
 
 fn valid_led(led: i32) -> bool {
-    led >= 0 && led < 24
+    led >= 0 && led < NUM_LEDS as i32
 }
 
 enum LedState2 {
@@ -390,10 +404,10 @@ enum LedState2 {
 impl From<i32> for LedState2 {
     fn from(ch: i32) -> Self {
         match ch {
-            CMD_OFF => LedState2::FALSE,
-            CMD_ON => LedState2::TRUE,
-            CMD_PWM => LedState2::PWM,
-            CMD_PWMPLUS => LedState2::PWMPLUS,
+            CMD_MODE_OFF => LedState2::FALSE,
+            CMD_MODE_ON => LedState2::TRUE,
+            CMD_MODE_PWM => LedState2::PWM,
+            CMD_MODE_PWMPLUS => LedState2::PWMPLUS,
             _ => panic!("Invalid LED state requested")
         }
     }
@@ -434,12 +448,24 @@ fn process_input(conf: &Config, core: &mut Core, client: &Client, state: &State,
             action.info = Some("Refreshed LED status".to_string());
         },
         _ => {
-            if (ch == CMD_OFF || ch == CMD_ON || ch == CMD_PWM || ch == CMD_PWMPLUS) && valid_led(state.selected) {
-                let ledstate2: LedState2 = ch.into();
-                action.info = Some(set_led_state(conf, core, client, state.selected, ledstate2.into()));
-                action.refresh_led_info = true;
-                action.refresh_selected = true;
-                action.refresh_info = true;
+            if CMD_MODES.contains(&ch) {
+                let ch: LedState2 = ch.into();
+                let ledstate: LedState = ch.into();
+                let mut leds = vec![];
+                if valid_led(state.selected) {
+                    leds.push(state.selected);
+                } else if state.selected == GLOBAL_LED {
+                    let mut l = (0..24).collect();
+                    leds.append(&mut l);
+                }
+                if !leds.is_empty() {
+                    for led in leds {
+                        action.info = Some(set_led_state(conf, core, client, led, ledstate));
+                    }
+                    action.refresh_led_info = true;
+                    action.refresh_selected = true;
+                    action.refresh_info = true;
+                }
             }
         },
     };
@@ -448,9 +474,9 @@ fn process_input(conf: &Config, core: &mut Core, client: &Client, state: &State,
             action.refresh_selected = true;
             action.selected = ii as i32;
             action.selected -= 1; // 0th index should be -1 - for none
-            if action.selected == 24 {
+            if action.selected == GLOBAL_LED {
                 action.info = Some("Selected Global".to_string());
-            } else if action.selected == -1 {
+            } else if action.selected == NO_LED {
                 action.info = Some("No LED selected".to_string());
             } else {
                 action.info = Some(format!("Selected LED {}", action.selected));
