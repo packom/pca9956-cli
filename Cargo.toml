@@ -1,6 +1,6 @@
 [package]
 name = "pca9956b-cli"
-version = "0.1.0"
+version = "0.1.1"
 authors = ["Piers Finlayson <piers@packom.net>"]
 license = "GPL-3.0-or-later"
 edition = "2018"
@@ -17,14 +17,14 @@ maintenance = { status = "actively-developed" }
 travis-ci = { repository = "packom/pca9956b-cli", branch = "master" }
 
 [dependencies]
-pca9956b-api = "0.1.1"
-tokio-core = "0.1.6"
+pca9956b-api = "0.1.2"
+tokio-core = "0.1.17"
 clap = "2.33"
-swagger = "1.0.1"
-uuid = {version = "0.5", features = ["serde", "v4"]}
-hyper = "0.11"
-log = "0.4.6"
-env_logger = "0.6.1"
+swagger = "4"
+uuid = {version = "0.8", features = ["serde", "v4"]}
+hyper = "0.12"
+log = "0.4"
+env_logger = "0.7"
 ncurses = "5.99.0"
-signal-hook = "0.1.9"
+signal-hook = "0.1.15"
 

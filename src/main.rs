@@ -59,7 +59,7 @@ struct State {
 }
 
 type ClientContext = make_context_ty!(ContextBuilder, EmptyContext, Option<AuthData>, XSpanIdString);
-type Client<'a> = swagger::context::ContextWrapper<'a, pca9956b_api::client::Client<hyper::client::FutureResponse>, ClientContext>;
+type Client<'a> = swagger::context::ContextWrapper<'a, pca9956b_api::client::Client<hyper::client::ResponseFuture>, ClientContext>;
 
 static QUIT: i32 = 0;
 static ABORT: i32 = 1;
@@ -187,16 +187,16 @@ fn dump_args(conf: &Config) {
   info!("Arg addr:  {}\n", conf.addr);
 }
 
-fn create_client<'a>(conf: &Config, core: &Core) -> pca9956b_api::client::Client<hyper::client::FutureResponse> {
+fn create_client<'a>(conf: &Config, core: &Core) -> pca9956b_api::client::Client<hyper::client::ResponseFuture> {
     let base_url = format!("{}://{}:{}",
                            if conf.https { "https" } else { "http" },
                            conf.host,
                            conf.port);
     if conf.https {
-        pca9956b_api::Client::try_new_https(core.handle(), &base_url, "examples/ca.pem")
+        pca9956b_api::Client::try_new_https(&base_url)
             .expect("Failed to create HTTPS client")
     } else {
-        pca9956b_api::Client::try_new_http(core.handle(), &base_url)
+        pca9956b_api::Client::try_new_http(&base_url)
             .expect("Failed to create HTTP client")
     }
 }
